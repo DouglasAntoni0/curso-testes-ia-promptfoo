@@ -11,6 +11,17 @@ const PRODUCTS_FILE = path.join(__dirname, 'data', 'products.json');
 
 const STOPWORDS = new Set(['qual', 'quais', 'para', 'como', 'quando', 'onde', 'voces', 'vocês', 'meu', 'minha', 'esse', 'essa', 'isso', 'pode', 'posso', 'tem', 'temos', 'sobre', 'uma', 'umas', 'uns', 'com', 'sem', 'por', 'que', 'dos', 'das', 'nos', 'nas', 'mais', 'muito', 'produto', 'produtos', 'faco', 'fazer', 'quero', 'compra', 'compras', 'pedido', 'dados', 'mostra']);
 
+const SYNONYMS = {
+  parce: '6x',
+  vezes: '6x',
+  pagar: 'formas de pagamento',
+  pago: 'formas de pagamento',
+  reemb: 'devol',
+  estor: 'devol',
+  envio: 'entre',
+  envia: 'entre',
+};
+
 function readChunks() {
   const chunks = [];
   for (const file of fs.readdirSync(POLICIES_DIR).sort()) {
@@ -66,7 +77,8 @@ function searchV2(message) {
   const words = normalize(message)
     .split(/[^a-z0-9]+/)
     .filter((w) => w.length > 2 && !STOPWORDS.has(w))
-    .map((w) => (w.length > 5 ? w.slice(0, 5) : w)); // simple stemming: trocar -> troca
+    .map((w) => (w.length > 5 ? w.slice(0, 5) : w)) // simple stemming: trocar -> troca
+    .flatMap((w) => (SYNONYMS[w] ? [w, SYNONYMS[w]] : [w]));
   const region = findRegion(message);
   if (region) words.push(normalize(region.name));
 

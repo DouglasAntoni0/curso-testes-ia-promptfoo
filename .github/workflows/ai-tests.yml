@@ -121,29 +121,42 @@ jobs:
           LLM_API_KEY: ollama
         run: |
           cp app/.env.example app/.env
+          cp tests/.env.example tests/.env
           npm start --prefix app > app.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://localhost:3000/health && break; sleep 1; done
+
+      - name: Run judge calibration (qwen3.8 from judge-check.yaml)
+        working-directory: tests
+        env:
+          PROMPTFOO_DISABLE_TELEMETRY: 1
+        run: >-
+          npx promptfoo eval --no-cache -j 1 -c judge-check.yaml
+          -o judge-check.junit.xml -o judge-check.json -o judge-check.html
 
       - name: Run judge tests (qwen3.8 from promptfooconfig.yaml)
         working-directory: tests
         env:
           PROMPTFOO_DISABLE_TELEMETRY: 1
         run: >-
-          npx promptfoo eval --no-cache
+          npx promptfoo eval --no-cache -j 1
           --filter-metadata type=judge
           -o results-ai.junit.xml -o results-ai.json -o report-ai.html
 
       - name: Job summary
         if: always()
         working-directory: tests
-        run: node ci/summary.js results-ai.json "Testes com IA como juiz (modo LLM)" "$REPORT_URL/ai.html"
+        run: |
+          node ci/summary.js judge-check.json "Calibração do juiz (qwen3.8)" "$REPORT_URL/judge-check.html"
+          node ci/summary.js results-ai.json "Testes com IA como juiz (modo LLM)" "$REPORT_URL/ai.html"
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ai-report
-          path: tests/report-ai.html
+          path: |
+            tests/judge-check.html
+            tests/report-ai.html
 
   publish-reports:
     name: Publish reports (GitHub Pages)
@@ -166,6 +179,7 @@ jobs:
           mkdir site
           cp reports/deterministic-report/report.html site/deterministic.html 2>/dev/null || true
           cp reports/deterministic-report/classifier.html site/classifier.html 2>/dev/null || true
+          cp reports/ai-report/judge-check.html site/judge-check.html 2>/dev/null || true
           cp reports/ai-report/report-ai.html site/ai.html 2>/dev/null || true
           cat > site/index.html <<HTML
           <!doctype html>
@@ -177,6 +191,7 @@ jobs:
             <ul>
               <li><a href="deterministic.html">Testes determinísticos (modo simulado)</a></li>
               <li><a href="classifier.html">Contrato do classificador</a></li>
+              <li><a href="judge-check.html">Calibração do juiz (qwen3.8)</a></li>
               <li><a href="ai.html">Testes com IA como juiz (modo LLM)</a></li>
             </ul>
           </body>
