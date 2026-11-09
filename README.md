@@ -4,12 +4,12 @@
 
 **Estudos práticos de qualidade para chatbots e aplicações com modelos de linguagem.**
 
-![Status: concluído](https://img.shields.io/badge/status-su%C3%ADte_completa-success)
+![Status: projeto de estudos](https://img.shields.io/badge/status-projeto_de_estudos-blue)
 ![Node.js: 22.22 ou superior](https://img.shields.io/badge/Node.js-%3E%3D22.22-339933?logo=nodedotjs&logoColor=white)
 ![promptfoo](https://img.shields.io/badge/testes-promptfoo-7C3AED)
 ![Ollama](https://img.shields.io/badge/IA_local-Ollama-111111)
 
-[Sobre](#sobre-o-projeto) · [Testes implementados](#testes-implementados) · [Como executar](#como-executar) · [Calibração do juiz](#calibração-do-juiz) · [Evolução](#evolução-dos-estudos) · [Curso](#curso-e-créditos)
+[Sobre](#sobre-o-projeto) · [Testes](#testes-implementados) · [Como executar](#como-executar) · [Calibração do juiz](#calibração-do-juiz) · [Integração contínua](#integração-contínua) · [Curso](#curso-e-créditos)
 
 </div>
 
@@ -18,6 +18,8 @@
 Este repositório reúne minha prática durante o curso **Automação de Testes de IA: Chatbots e LLMs com promptfoo**, ministrado por **Jeferson Fabiano Caye**, na Udemy. O objetivo é transformar comportamentos esperados de uma aplicação com IA em testes automatizados, versionados e reproduzíveis.
 
 O sistema sob teste é o **ShopDemo Assistente**, um chatbot de atendimento de uma loja fictícia. Ele permite explorar perguntas sobre pedidos, produtos e políticas da loja, além de situações de recusa, preservação de contexto, fidelidade ao RAG, contrato JSON de classificação e proteção de instruções internas.
+
+O projeto acompanha minha evolução no curso. A suíte atual combina regressão funcional, avaliação com IA, testes de segurança e execução no GitHub Actions.
 
 ## O que estou praticando
 
@@ -50,6 +52,8 @@ O sistema sob teste é o **ShopDemo Assistente**, um chatbot de atendimento de u
 
 O modo e a versão são independentes. É possível estudar as duas versões tanto no modo simulado quanto com o modelo de linguagem.
 
+Na `v2`, a busca de políticas também expande termos de pagamento, devolução e entrega. Perguntas como “Posso parcelar em quantas vezes?” ajudam a verificar se o contexto recuperado sustenta a resposta.
+
 ### Modelos personalizados configurados
 
 | Papel | Modelo configurado | Uso no projeto |
@@ -61,7 +65,7 @@ O modo e a versão são independentes. É possível estudar as duas versões tan
 
 ## Testes implementados
 
-A suíte completa em `tests/` está dividida por finalidade e metadados (`metadata.type: deterministic` ou `metadata.type: judge`):
+A suíte em `tests/` agrupa os casos por finalidade e usa `metadata.type` para separar os testes determinísticos dos avaliados pelo juiz.
 
 | Arquivo / Pasta | Tipo | O que valida |
 | --- | --- | --- |
@@ -73,7 +77,7 @@ A suíte completa em `tests/` está dividida por finalidade e metadados (`metada
 | `cases/06-conversation.yaml` | `deterministic` | Memória de múltiplos turnos na mesma sessão (`sessionId: conversation-4521`, `runSerially: true`) |
 | `cases/07-security.yaml` | `deterministic` / `judge` | Resistência a prompt injection (encenação, tradução, extração de regras) e bloqueio de acesso a pedidos de outros clientes (BOLA / pedido `7788`) |
 | `classifier.yaml` | `deterministic` | Contrato JSON Schema (`is-json`) e precisão das intenções no endpoint `POST /classify` |
-| `judge-check.yaml` | `judge` (calibração) | Calibração do juiz (`qwen3.8`) com respostas fixas (`echo`) em português, português com termo citado, inglês e misto (`llm-rubric` e `not-llm-rubric`) |
+| `judge-check.yaml` | Calibração | Calibração do juiz (`qwen3.8`) com respostas fixas (`echo`) em português, português com termo citado, inglês e misto (`llm-rubric` e `not-llm-rubric`) |
 | `smoke.yaml` | `deterministic` | Teste de fumaça direto com o provider `ollama:chat:qwen3.5:9b` |
 | `compare-models.yaml` | `deterministic` | Comparação lado a lado entre `qwen3.5:9b` e `qwen3.8` |
 | `redteam/promptfooconfig.yaml` | `redteam` | Varredura automatizada de vulnerabilidades (`prompt-extraction`, `pii:direct`, `excessive-agency`, `hallucination` e políticas) com `qwen3.8` |
@@ -81,8 +85,8 @@ A suíte completa em `tests/` está dividida por finalidade e metadados (`metada
 ```mermaid
 flowchart LR
     A[Casos YAML / CSV] --> B[promptfoo]
-    B -->|POST /chat ou /classify| C["ShopDemo Assistente (qwen3.5:9b)"]
-    C -->|reply + context + tools| B
+    B -->|POST /chat ou /classify| C["ShopDemo Assistente (simulado ou LLM)"]
+    C -->|Resposta HTTP| B
     B --> D[Asserções determinísticas e JS]
     B --> E["Juiz no Ollama (qwen3.8)"]
     D --> F[Relatório e CI Summary]
@@ -94,7 +98,7 @@ flowchart LR
 ```text
 curso-testes-ia-promptfoo/
 ├── .github/workflows/
-│   └── ai-tests.yml            # Pipeline CI/CD (testes determinísticos, juiz e GitHub Pages)
+│   └── ai-tests.yml            # Testes, calibração, artefatos e GitHub Pages
 ├── app/
 │   ├── data/                   # Pedidos, produtos e políticas da loja (.json e .md)
 │   ├── prompts/                # Instruções de sistema das versões v1 e v2
@@ -140,22 +144,22 @@ curso-testes-ia-promptfoo/
 
 - **Node.js 22.22.0 ou superior**, com npm.
 - **Git** para controle de versão.
-- **Ollama** em execução em `http://localhost:11434` com os modelos `qwen3.5:9b` e `qwen3.8`.
+- **Ollama** para o modo `llm`, a calibração, os testes com juiz e o red team. Os testes determinísticos e de contrato rodam sem Ollama no modo simulado.
 
-### 2. Instalar dependências e preparar os arquivos `.env`
+### 2. Clonar e preparar o ambiente
 
 ```powershell
-cd app
-npm install
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-
-cd ../tests
-npm install
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-cd ..
+git clone https://github.com/DouglasAntoni0/curso-testes-ia-promptfoo.git
+cd curso-testes-ia-promptfoo
+npm ci --prefix app
+npm ci --prefix tests
+if (-not (Test-Path app/.env)) { Copy-Item app/.env.example app/.env }
+if (-not (Test-Path tests/.env)) { Copy-Item tests/.env.example tests/.env }
 ```
 
-### 3. Garantir os modelos no Ollama
+### 3. Preparar os modelos para avaliações com IA
+
+Com o Ollama em execução em `http://localhost:11434`, baixe os modelos configurados. Para rodar apenas os testes determinísticos e o classificador no modo simulado, avance para a próxima etapa.
 
 ```powershell
 ollama pull qwen3.5:9b
@@ -165,60 +169,45 @@ ollama list
 
 ### 4. Iniciar o assistente
 
-Em um terminal, a partir da raiz do projeto:
+Para reproduzir o ambiente dos testes determinísticos do CI, rode a `v2` no modo simulado. A partir da raiz do projeto, em PowerShell:
 
 ```powershell
-cd app
-npm start
+$env:MODE = 'simulated'
+$env:VERSION = 'v2'
+npm start --prefix app
 ```
 
 - **Chat no navegador:** [http://localhost:3000](http://localhost:3000)
 - **Estado da aplicação:** [http://localhost:3000/health](http://localhost:3000/health)
 
-Para alternar entre modos (`simulated` ou `llm`) e versões (`v1` com defeitos ou `v2` corrigida), ajuste `MODE` e `VERSION` em `app/.env`.
+Para avaliar respostas geradas pelo modelo, reinicie com `$env:MODE = 'llm'`. Defina `$env:VERSION = 'v1'` para explorar as falhas didáticas. Os valores definidos no terminal têm prioridade sobre `app/.env`.
 
 ### 5. Executar os testes e a calibração
 
-Em outro terminal, dentro da pasta `tests/`:
+Com o assistente em execução, abra outro terminal na raiz do projeto e rode a bateria desejada.
 
 ```powershell
 cd tests
 
-# 1. Calibração do juiz (qwen3.8) - não depende do servidor do app (usa provider echo)
-npm run test:judge-check
-# ou: npx promptfoo eval --no-cache -c judge-check.yaml
-
-# 2. Testes determinísticos (rápidos, sem juiz de IA)
-npm run test:deterministic
-# ou: npx promptfoo eval --no-cache --filter-metadata type=deterministic
-
-# 3. Contrato JSON do classificador (/classify)
-npm run test:classifier
-# ou: npx promptfoo eval --no-cache -c classifier.yaml
-
-# 4. Testes avaliados pelo juiz (qwen3.8)
-npm run test:judge
-# ou: npx promptfoo eval --no-cache --filter-metadata type=judge
-
-# 5. Suíte completa (todos os casos em cases/*.yaml e 02-policies.csv)
-npm test
-# ou: npx promptfoo eval --no-cache
-
-# 6. Smoke test e comparação entre qwen3.5:9b e qwen3.8
-npm run test:smoke
-npm run test:compare
-
-# 7. Red Team local automatizado
-npm run redteam
-
-# 8. Abrir o relatório visual no navegador
-npm run report
-# ou: npm run view
+npm run test:deterministic -- --no-cache
+npm run test:classifier -- --no-cache
 ```
+
+| Comando | O que executa |
+| --- | --- |
+| `npm run test:judge-check` | Quatro casos de calibração com respostas fixas e o juiz no Ollama |
+| `npm run test:judge` | Casos semânticos, de RAG e de segurança que usam o juiz |
+| `npm test` | Suíte principal de atendimento em `tests/cases/` |
+| `npm run test:smoke` | Verificação direta do modelo do assistente no Ollama |
+| `npm run test:compare` | Comparação dos dois modelos com os mesmos prompts |
+| `npm run redteam` | Geração e avaliação local de ataques contra o assistente |
+| `npm run report` | Visualizador das avaliações locais do promptfoo |
+
+Os comandos locais acima executam as avaliações com um caso por vez (`-j 1`). Acrescente `-- --no-cache` a `npm test` ou `npm run test:judge` para obter respostas novas. A calibração, o smoke e a comparação usam `--no-cache` por padrão.
 
 ## Calibração do juiz
 
-O arquivo `tests/judge-check.yaml` (importado da branch `gravacao` e ajustado para o juiz `ollama:chat:qwen3.8` com `temperature: 0` e `think: false`) valida se o modelo avaliador julga corretamente a rubrica de idioma antes de confiarmos nele na suíte principal:
+O arquivo `tests/judge-check.yaml` usa `qwen3.8` com `temperature: 0` e `think: false` para verificar como o juiz aplica a rubrica de idioma. Os quatro casos rodam diretamente com o Ollama, sem precisar iniciar o assistente.
 
 - Usa o provider `echo` (as respostas já são conhecidas e fixas, isolando apenas o comportamento do juiz).
 - **2 casos que o juiz deve aprovar (`llm-rubric`):** resposta em português puro e resposta em português citando a palavra `"status"`.
@@ -231,19 +220,21 @@ cd tests
 npm run test:judge-check
 ```
 
-### Configuração principal
+## Configuração principal
 
 | Arquivo | Variável ou campo | Valor configurado | Finalidade |
 | --- | --- | --- | --- |
 | `app/.env` | `PORT` | `3000` | Porta HTTP do assistente |
-| `app/.env` | `MODE` | `llm` (ou `simulated`) | Seleção entre modelo de linguagem e respostas fixas |
-| `app/.env` | `VERSION` | `v2` (ou `v1`) | Versão do assistente (`v2` corrigida / `v1` com bugs) |
+| `app/.env` | `MODE` | `simulated` | Use `llm` para gerar respostas com o modelo |
+| `app/.env` | `VERSION` | `v1` | Use `v2` para testar a versão corrigida |
 | `app/.env` | `OLLAMA_BASE_URL` | `http://localhost:11434` | URL base da API nativa do Ollama |
-| `app/.env` | `LLM_BASE_URL` | `http://localhost:11434/v1` | Endpoint compatível com Chat Completions |
+| `app/.env` | `LLM_BASE_URL` | `http://localhost:11434/v1` | Base do provedor. No Ollama, o cliente usa `/api/chat` |
 | `app/.env` | `LLM_MODEL` | `qwen3.5:9b` | Modelo principal do assistente |
 | `tests/.env` | `OLLAMA_BASE_URL` | `http://localhost:11434` | Endereço do Ollama para o promptfoo |
 | `tests/promptfooconfig.yaml` | `defaultTest.options.provider.id` | `ollama:chat:qwen3.8` | Modelo juiz da suíte principal |
 | `tests/judge-check.yaml` | `defaultTest.options.provider.id` | `ollama:chat:qwen3.8` | Modelo juiz na calibração |
+
+Se mudar a porta do assistente, atualize os endereços em `tests/targets/assistant.yaml` e `tests/classifier.yaml`. Use os arquivos `.env.example` para preparar a configuração local. O `.gitignore` exclui os arquivos `.env` e os dados locais do promptfoo.
 
 ## API disponível
 
@@ -252,20 +243,19 @@ npm run test:judge-check
 | `GET` | `/` | Interface web do assistente |
 | `GET` | `/health` | Estado, modo, versão e modelo em uso |
 | `POST` | `/chat` | Atendimento; recebe `message` e, opcionalmente, `sessionId` |
-| `POST` | `/classify` | Classificação de intenção em JSON (`intent`, `orderId`, `confidence`) |
+| `POST` | `/classify` | Classificação de intenção. Na `v2`, retorna o texto JSON com `intent`, `orderId` e `confidence` esperado pela suíte de contrato |
 
-## Evolução dos estudos
+## Integração contínua
 
-- [x] Preparar o assistente e a configuração para uso de modelos locais (`qwen3.5:9b` e `qwen3.8`).
-- [x] Criar a suíte inicial em YAML com provider HTTP.
-- [x] Combinar asserções de texto com avaliação por `llm-rubric`.
-- [x] Incluir cenários de pedido, devolução, escopo e proteção de instruções.
-- [x] Ampliar asserções com regex, JSON Schema (`classifier.yaml`), JavaScript (`asserts/rules.js`) e latência.
-- [x] Organizar massas de teste em CSV (`02-policies.csv`) e comparar modelos (`compare-models.yaml`).
-- [x] Calibrar o modelo juiz (`judge-check.yaml`) e avaliar fidelidade ao contexto em RAG (`05-rag.yaml`) e conversas multi-turno (`06-conversation.yaml`).
-- [x] Expandir testes de segurança (`07-security.yaml`) e configurar Red Team automatizado (`redteam/promptfooconfig.yaml`).
-- [x] Consolidar regressão entre versões do aplicativo e dos prompts (`v1` vs `v2`).
-- [x] Integrar as avaliações ao GitHub Actions (`.github/workflows/ai-tests.yml`) e publicação de relatórios.
+O workflow **AI Tests** executa em pushes, pull requests e por acionamento manual. [Acompanhar execuções no GitHub Actions](https://github.com/DouglasAntoni0/curso-testes-ia-promptfoo/actions/workflows/ai-tests.yml)
+
+| Etapa | O que roda |
+| --- | --- |
+| **Regressão funcional** | Testes determinísticos de atendimento e contrato do classificador com `MODE=simulated` e `VERSION=v2`. |
+| **Avaliação com IA** | Ollama no runner, calibração com `qwen3.8` e casos com juiz usando o assistente em `MODE=llm`. Esta etapa tem caráter informativo (`continue-on-error`). |
+| **Relatórios** | Resumos e relatórios HTML nos artefatos da execução. O job de Pages reúne os HTMLs disponíveis para publicar um índice. |
+
+O GitHub Pages precisa estar configurado com **Settings → Pages → Source → GitHub Actions** para o deploy dos relatórios. [Guia de configuração do GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
 
 ## Curso e créditos
 
