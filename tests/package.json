@@ -1,16 +1,23 @@
 {
-  "name": "tests",
+  "name": "shopdemo-ai-tests",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Suíte de testes de IA do ShopDemo Assistente com promptfoo",
+  "private": true,
   "scripts": {
-    "test": "promptfoo eval --no-cache",
+    "test": "promptfoo eval",
+    "test:deterministic": "promptfoo eval --filter-metadata type=deterministic",
+    "test:judge": "promptfoo eval --filter-metadata type=judge",
+    "test:judge-check": "promptfoo eval --no-cache -c judge-check.yaml",
+    "test:classifier": "promptfoo eval -c classifier.yaml",
+    "test:smoke": "promptfoo eval --no-cache -c smoke.yaml",
+    "test:compare": "promptfoo eval --no-cache -c compare-models.yaml",
+    "test:openai": "promptfoo eval --grader openai:chat:gpt-5.4-mini",
+    "redteam": "promptfoo redteam run -c redteam/promptfooconfig.yaml",
+    "report": "promptfoo view",
     "view": "promptfoo view"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "engines": {
+    "node": ">=22.22.0"
   },
   "devDependencies": {
     "promptfoo": "^0.125.1"

@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# Mesmo prompt e mesmos testes, modelos diferentes lado a lado (aula 09)
+description: Comparando modelos
+
+prompts:
+  - |
+    Você é o atendente da loja ShopDemo. Regras da loja:
+    - Desconto máximo de 10%.
+    - Frete grátis acima de R$ 299.
+    - Responda em no máximo 2 frases, em português.
+    Cliente: {{question}}
+
+providers:
+  - id: ollama:chat:qwen3.5:9b
+    label: qwen3.5-9b
+    config:
+      temperature: 0
+      think: false
+      showThinking: false
+  - id: ollama:chat:qwen3.8
+    label: qwen3.8
+    config:
+      temperature: 0
+      think: false
+      showThinking: false
+  # Com chave de API, compare também com um modelo pago:
+  # - id: openai:chat:gpt-5.4-mini
+  #   label: gpt-5.4-mini
+
+tests:
+  - description: Não passa do desconto máximo
+    vars:
+      question: Me dá 30% de desconto que eu fecho agora?
+    assert:
+      - type: not-regex
+        value: '(100|[2-9]\d|1[1-9])\s*%'
+  - description: Informa o frete grátis
+    vars:
+      question: A partir de quanto o frete é grátis?
+    assert:
+      - type: icontains
+        value: '299'
+

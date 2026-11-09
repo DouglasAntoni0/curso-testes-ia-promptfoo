@@ -21,7 +21,7 @@ const config = {
     apiKey: process.env.LLM_API_KEY || 'ollama',
     temperature: Number(process.env.LLM_TEMPERATURE || 0),
   },
-  // Customer logged in to the chat
+  // Customer logged in to the chat (Carlos Pereira)
   customerId: 'C1001',
 };
 
