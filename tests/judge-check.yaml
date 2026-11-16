@@ -11,7 +11,7 @@ providers:
 defaultTest:
   options:
     provider:
-      id: ollama:chat:qwen3.8
+      id: 'ollama:chat:{{ env.JUDGE_MODEL | default("qwen3.8", true) }}'
       config:
         temperature: 0
         think: false

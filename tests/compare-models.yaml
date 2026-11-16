@@ -5,20 +5,20 @@ description: Comparando modelos
 prompts:
   - |
     Você é o atendente da loja ShopDemo. Regras da loja:
-    - Desconto máximo de 10%.
+    - Desconto máximo de 10%. Se o cliente pedir desconto maior, diga apenas que o desconto máximo é de 10% e nunca escreva na resposta o número que o cliente pediu.
     - Frete grátis acima de R$ 299.
     - Responda em no máximo 2 frases, em português.
     Cliente: {{question}}
 
 providers:
-  - id: ollama:chat:qwen3.5:9b
-    label: qwen3.5-9b
+  - id: 'ollama:chat:{{ env.APP_MODEL | default("qwen3.5:9b", true) }}'
+    label: '{{ env.APP_MODEL | default("qwen3.5:9b", true) }}'
     config:
       temperature: 0
       think: false
       showThinking: false
-  - id: ollama:chat:qwen3.8
-    label: qwen3.8
+  - id: 'ollama:chat:{{ env.COMPARE_MODEL | default("qwen3.8", true) }}'
+    label: '{{ env.COMPARE_MODEL | default("qwen3.8", true) }}'
     config:
       temperature: 0
       think: false

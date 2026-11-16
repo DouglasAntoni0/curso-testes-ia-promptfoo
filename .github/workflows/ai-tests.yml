@@ -7,201 +7,247 @@ on:
 
 permissions:
   contents: read
-  checks: write
 
 env:
-  REPORT_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+  PROMPTFOO_DISABLE_TELEMETRY: '1'
 
 jobs:
   deterministic:
-    name: Deterministic tests (simulated mode)
+    name: Regressão e contrato (modo simulado)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
 
-      - name: Install dependencies
+      - name: Instalar dependências
         run: |
-          npm ci --prefix app
           npm ci --prefix tests
+          mkdir -p tests/results
 
-      - name: Start ShopDemo Assistant (simulated)
+      - name: Iniciar ShopDemo v2
+        id: app
         env:
           MODE: simulated
           VERSION: v2
         run: |
-          cp app/.env.example app/.env
-          npm start --prefix app > app.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://localhost:3000/health && break; sleep 1; done
+          node app/server.js > app.log 2>&1 &
+          if ! curl -fsS --retry 20 --retry-connrefused --retry-delay 1 --max-time 3 http://localhost:3000/health; then
+            cat app.log
+            exit 1
+          fi
 
-      - name: Run deterministic tests
-        working-directory: tests
-        env:
-          PROMPTFOO_DISABLE_TELEMETRY: 1
-        run: >-
-          npx promptfoo eval --no-cache
-          --filter-metadata type=deterministic
-          -o results.junit.xml -o results.json -o report.html
-
-      - name: Run classifier contract tests
-        if: always()
-        working-directory: tests
-        env:
-          PROMPTFOO_DISABLE_TELEMETRY: 1
-        run: >-
-          npx promptfoo eval --no-cache -c classifier.yaml
-          -o classifier.junit.xml -o classifier.json -o classifier.html
-
-      - name: Job summary
-        if: always()
+      - name: Testar atendimento
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
         working-directory: tests
         run: |
-          node ci/summary.js results.json "Testes determinísticos (modo simulado)" "$REPORT_URL/deterministic.html"
-          node ci/summary.js classifier.json "Contrato do classificador" "$REPORT_URL/classifier.html"
+          npm run test:deterministic -- --no-progress-bar --no-cache \
+            -o results/deterministic.json -o results/deterministic.junit.xml -o results/deterministic.html
+      - name: Resumo de deterministic
+        if: ${{ !cancelled() }}
+        working-directory: tests
+        run: |
+          if [ -f results/deterministic.json ]; then
+            node ci/summary.js results/deterministic.json "Testar atendimento"
+          fi
 
-      - name: Test report
-        if: always()
-        uses: dorny/test-reporter@v1
-        with:
-          name: AI tests (deterministic)
-          path: tests/*.junit.xml
-          reporter: java-junit
+      - name: Testar contrato do classificador
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        working-directory: tests
+        run: |
+          npm run test:classifier -- --no-progress-bar --no-cache \
+            -o results/classifier.json -o results/classifier.junit.xml -o results/classifier.html
+      - name: Resumo de classifier
+        if: ${{ !cancelled() }}
+        working-directory: tests
+        run: |
+          if [ -f results/classifier.json ]; then
+            node ci/summary.js results/classifier.json "Testar contrato do classificador"
+          fi
 
-      - name: Upload report
-        if: always()
+      - name: Guardar relatórios
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: deterministic-report
-          path: |
-            tests/report.html
-            tests/classifier.html
+          name: suite-deterministic
+          path: tests/results/
+          retention-days: 14
 
   with-ai:
-    name: AI tests (Ollama on the runner)
+    name: Avaliações com IA (Ollama)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: deterministic
-    continue-on-error: true   # informativo até o juiz estar calibrado
+    env:
+      APP_MODEL: qwen3.5:9b
+      JUDGE_MODEL: qwen3.5:9b
+      COMPARE_MODEL: qwen3.5:4b
+      OLLAMA_BASE_URL: http://localhost:11434
+      OLLAMA_CONTEXT_LENGTH: '4096'
+      OLLAMA_MAX_LOADED_MODELS: '1'
+      OLLAMA_NUM_PARALLEL: '1'
+      REQUEST_TIMEOUT_MS: '180000'
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
 
-      - name: Install dependencies
+      - name: Instalar dependências
         run: |
-          npm ci --prefix app
           npm ci --prefix tests
+          mkdir -p tests/results
 
       - uses: ai-action/setup-ollama@v2
 
-      - name: Cache models
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama
-          key: ${{ runner.os }}-ollama-qwen3.5-9b-qwen3.8
-
-      - name: Start Ollama and pull models
+      - name: Carregar modelos do Ollama
+        id: ollama
         run: |
-          curl -sf http://localhost:11434/api/tags || (ollama serve > ollama.log 2>&1 &)
-          for i in $(seq 1 30); do curl -sf http://localhost:11434/api/tags && break; sleep 1; done
-          ollama pull qwen3.5:9b
-          ollama pull qwen3.8
+          if ! curl -fs "$OLLAMA_BASE_URL/api/version"; then
+            ollama serve > ollama.log 2>&1 &
+          fi
+          curl -fsS --retry 20 --retry-connrefused --retry-delay 1 --max-time 3 "$OLLAMA_BASE_URL/api/version"
+          for model in $(printf '%s\n' "$APP_MODEL" "$JUDGE_MODEL" "$COMPARE_MODEL" | sort -u); do
+            ollama pull "$model"
+          done
+          ollama list
 
-      - name: Start ShopDemo Assistant (LLM)
+      - name: Iniciar ShopDemo v2 com LLM
+        id: app
         env:
           MODE: llm
           VERSION: v2
-          OLLAMA_BASE_URL: http://localhost:11434
-          LLM_BASE_URL: http://localhost:11434/v1
-          LLM_MODEL: qwen3.5:9b
-          LLM_API_KEY: ollama
+          LLM_MODEL: ${{ env.APP_MODEL }}
         run: |
-          cp app/.env.example app/.env
-          cp tests/.env.example tests/.env
-          npm start --prefix app > app.log 2>&1 &
-          for i in $(seq 1 60); do curl -sf http://localhost:3000/health && break; sleep 1; done
+          node app/server.js > app.log 2>&1 &
+          if ! curl -fsS --retry 20 --retry-connrefused --retry-delay 1 --max-time 3 http://localhost:3000/health; then
+            cat app.log
+            exit 1
+          fi
 
-      - name: Run judge calibration (qwen3.8 from judge-check.yaml)
-        working-directory: tests
-        env:
-          PROMPTFOO_DISABLE_TELEMETRY: 1
-        run: >-
-          npx promptfoo eval --no-cache -j 1 -c judge-check.yaml
-          -o judge-check.junit.xml -o judge-check.json -o judge-check.html
-
-      - name: Run judge tests (qwen3.8 from promptfooconfig.yaml)
-        working-directory: tests
-        env:
-          PROMPTFOO_DISABLE_TELEMETRY: 1
-        run: >-
-          npx promptfoo eval --no-cache -j 1
-          --filter-metadata type=judge
-          -o results-ai.junit.xml -o results-ai.json -o report-ai.html
-
-      - name: Job summary
-        if: always()
+      - name: Verificar conectividade com o modelo
+        if: ${{ !cancelled() && steps.ollama.outcome == 'success' }}
         working-directory: tests
         run: |
-          node ci/summary.js judge-check.json "Calibração do juiz (qwen3.8)" "$REPORT_URL/judge-check.html"
-          node ci/summary.js results-ai.json "Testes com IA como juiz (modo LLM)" "$REPORT_URL/ai.html"
+          npm run test:smoke -- --no-progress-bar \
+            -o results/smoke.json -o results/smoke.junit.xml -o results/smoke.html
+      - name: Resumo de smoke
+        if: ${{ !cancelled() }}
+        working-directory: tests
+        run: |
+          if [ -f results/smoke.json ]; then
+            node ci/summary.js results/smoke.json "Verificar conectividade com o modelo"
+          fi
 
-      - name: Upload report
-        if: always()
+      - name: Calibrar o juiz
+        if: ${{ !cancelled() && steps.ollama.outcome == 'success' }}
+        working-directory: tests
+        run: |
+          npm run test:judge-check -- --no-progress-bar \
+            -o results/judge-check.json -o results/judge-check.junit.xml -o results/judge-check.html
+      - name: Resumo de judge-check
+        if: ${{ !cancelled() }}
+        working-directory: tests
+        run: |
+          if [ -f results/judge-check.json ]; then
+            node ci/summary.js results/judge-check.json "Calibrar o juiz"
+          fi
+
+      - name: Avaliar atendimento, contexto e segurança com o juiz
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        working-directory: tests
+        run: |
+          npm run test:judge -- --no-progress-bar --no-cache \
+            -o results/ai.json -o results/ai.junit.xml -o results/ai.html
+      - name: Resumo de ai
+        if: ${{ !cancelled() }}
+        working-directory: tests
+        run: |
+          if [ -f results/ai.json ]; then
+            node ci/summary.js results/ai.json "Avaliar atendimento, contexto e segurança com o juiz"
+          fi
+
+      - name: Comparar os modelos
+        if: ${{ !cancelled() && steps.ollama.outcome == 'success' }}
+        working-directory: tests
+        run: |
+          npm run test:compare -- --no-progress-bar \
+            -o results/compare.json -o results/compare.junit.xml -o results/compare.html
+      - name: Resumo de compare
+        if: ${{ !cancelled() }}
+        working-directory: tests
+        run: |
+          if [ -f results/compare.json ]; then
+            node ci/summary.js results/compare.json "Comparar os modelos"
+          fi
+
+      - name: Guardar relatórios
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ai-report
-          path: |
-            tests/judge-check.html
-            tests/report-ai.html
+          name: suite-ai
+          path: tests/results/
+          retention-days: 14
 
   publish-reports:
-    name: Publish reports (GitHub Pages)
+    name: Publicar relatórios no GitHub Pages
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [deterministic, with-ai]
-    if: always() && (github.ref_name == 'main' || github.ref_name == 'final' || github.ref_name == 'final-customizada') && needs.deterministic.result != 'skipped'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.PUBLISH_REPORTS == 'true'
     permissions:
+      contents: read
       pages: write
       id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      - uses: actions/configure-pages@v5
+
       - uses: actions/download-artifact@v4
         with:
+          pattern: suite-*
           path: reports
+          merge-multiple: true
 
-      - name: Build site
+      - name: Montar índice de relatórios
         run: |
           mkdir site
-          cp reports/deterministic-report/report.html site/deterministic.html 2>/dev/null || true
-          cp reports/deterministic-report/classifier.html site/classifier.html 2>/dev/null || true
-          cp reports/ai-report/judge-check.html site/judge-check.html 2>/dev/null || true
-          cp reports/ai-report/report-ai.html site/ai.html 2>/dev/null || true
           cat > site/index.html <<HTML
           <!doctype html>
           <html lang="pt-BR">
-          <head><meta charset="utf-8"><title>Relatórios de testes de IA</title></head>
-          <body style="font-family: sans-serif; max-width: 640px; margin: 40px auto;">
-            <h1>Relatórios de testes de IA</h1>
-            <p>Execução ${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA::7}</p>
+          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Relatórios ShopDemo</title></head>
+          <body>
+            <h1>Relatórios de testes do ShopDemo</h1>
+            <p><a href="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID">Execução $GITHUB_RUN_NUMBER</a> · Commit $GITHUB_SHA</p>
             <ul>
-              <li><a href="deterministic.html">Testes determinísticos (modo simulado)</a></li>
-              <li><a href="classifier.html">Contrato do classificador</a></li>
-              <li><a href="judge-check.html">Calibração do juiz (qwen3.8)</a></li>
-              <li><a href="ai.html">Testes com IA como juiz (modo LLM)</a></li>
-            </ul>
-          </body>
-          </html>
           HTML
+          for report in \
+            'deterministic|Regressão funcional (modo simulado)' \
+            'classifier|Contrato do classificador' \
+            'smoke|Conectividade com Ollama' \
+            'judge-check|Calibração do juiz' \
+            'ai|Avaliação com IA' \
+            'compare|Comparação de modelos'; do
+            file="${report%%|*}.html"
+            cp "reports/$file" "site/$file"
+            printf '    <li><a href="%s">%s</a></li>\n' "$file" "${report#*|}" >> site/index.html
+          done
+          printf '    </ul>\n</body>\n</html>\n' >> site/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      - id: deploy
-        uses: actions/deploy-pages@v4
-
+      - uses: actions/deploy-pages@v4
+        id: deploy

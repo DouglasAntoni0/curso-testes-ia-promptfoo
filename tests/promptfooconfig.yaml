@@ -11,9 +11,9 @@ defaultTest:
   options:
     # sessionId nova por caso, a não ser que o caso defina uma (aula 22)
     transformVars: '{ ...vars, sessionId: vars.sessionId || context.uuid }'
-    # Juiz (aula 17): modelo avaliador personalizado qwen3.8
+    # O CI pode escolher um juiz que caiba no runner.
     provider:
-      id: ollama:chat:qwen3.8
+      id: 'ollama:chat:{{ env.JUDGE_MODEL | default("qwen3.8", true) }}'
       config:
         temperature: 0
         think: false

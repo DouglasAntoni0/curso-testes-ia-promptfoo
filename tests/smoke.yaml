@@ -6,7 +6,7 @@ prompts:
   - Responda somente a palavra OK
 
 providers:
-  - id: ollama:chat:qwen3.5:9b
+  - id: 'ollama:chat:{{ env.APP_MODEL | default("qwen3.5:9b", true) }}'
     config:
       temperature: 0
       think: false
